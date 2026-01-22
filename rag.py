@@ -1,67 +1,40 @@
 import os
-
-# --- FORCE HUGGING FACE TO IGNORE SYSTEM FOLDERS ---
-# This tells the library: "Don't check for tokens, and save everything locally."
-os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
-os.environ["HF_HOME"] = "./model_cache"
-
-from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
+from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-class PDFBrain:
-    def __init__(self):
-        print("🧠 Loading Embedding Model... (This will create a 'model_cache' folder)")
-        
-        # We explicitly say token=False to stop it from looking for login keys
-        self.model = SentenceTransformer(
-            'all-MiniLM-L6-v2', 
-            cache_folder="./model_cache",
-            token=False 
-        )
-        
-        self.chunks = []
-        self.embeddings = []
-        print("✅ Model Loaded Successfully.")
+# Load a lightweight model (uses ~200MB RAM instead of 1GB)
+print("🧠 Loading FastEmbed Model...")
+embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+print("✅ Model Loaded!")
 
-    def process_pdf(self, file_path):
-        """Reads a PDF and cuts it into bite-sized chunks for the AI."""
-        reader = PdfReader(file_path)
-        text = ""
-        for page in reader.pages:
-            try:
-                text += page.extract_text() + "\n"
-            except:
-                pass 
-        
-        # Split by double newlines (paragraphs)
-        raw_chunks = text.split('\n\n')
-        self.chunks = [c.strip() for c in raw_chunks if len(c) > 50]
-        
-        if not self.chunks:
-            return 0
-            
-        print(f"📄 PDF Processed. Found {len(self.chunks)} chunks. Converting to Vectors...")
-        
-        # Convert text to numbers
-        self.embeddings = self.model.encode(self.chunks)
-        print("✅ Vector Database Built in Memory.")
-        return len(self.chunks)
+def get_embedding(text: str):
+    """Generates a vector embedding for the given text."""
+    # FastEmbed returns a generator, so we convert to list and get the first item
+    embeddings = list(embedding_model.embed([text]))
+    return embeddings[0]
 
-    def search(self, query, top_k=3):
-        if not self.chunks:
-            return []
+def find_best_match(query: str, documents: list):
+    """Finds the most relevant document chunk for the query."""
+    if not documents:
+        return None
+    
+    # 1. Embed the query
+    query_vec = get_embedding(query)
+    
+    # 2. Embed all documents (in a real app, you'd cache these!)
+    # Note: FastEmbed is fast, but doing this every time is still a bit slow.
+    # For a demo, it's fine.
+    doc_vecs = list(embedding_model.embed(documents))
+    
+    # 3. Calculate similarities
+    scores = cosine_similarity([query_vec], doc_vecs)[0]
+    
+    # 4. Find best score
+    best_idx = np.argmax(scores)
+    best_score = scores[best_idx]
+    
+    if best_score < 0.3: # Relevance threshold
+        return None
         
-        query_vector = self.model.encode([query])[0]
-        scores = np.dot(self.embeddings, query_vector)
-        top_indices = np.argsort(scores)[::-1][:top_k]
-        
-        results = []
-        for idx in top_indices:
-            results.append(self.chunks[idx])
-            
-        return results
-
-if __name__ == "__main__":
-    brain = PDFBrain()
-    print("Run api.py to use this properly.")
+    return documents[best_idx]
