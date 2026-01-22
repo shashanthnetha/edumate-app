@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EduMate: Adaptive Learning</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; color: #333; max-width: 900px; margin: 40px auto; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .stats-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); min-width: 150px; text-align: center; }
+        .stats-val { font-size: 24px; font-weight: bold; color: #6200ea; }
+        .stats-label { color: #666; font-size: 14px; }
+        
+        .main-card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 10px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .bar-container { background: #eee; height: 10px; border-radius: 5px; margin: 15px 0; overflow: hidden; }
+        .bar { height: 100%; background: #00c853; width: 50%; transition: width 0.5s ease; }
+        
+        .question-box { display: none; } /* Hidden until loaded */
+        .option-btn { display: block; width: 100%; padding: 15px; margin: 10px 0; border: 2px solid #eee; border-radius: 8px; background: white; cursor: pointer; text-align: left; transition: 0.2s; font-size: 16px;}
+        .option-btn:hover { border-color: #6200ea; background: #f9f7ff; }
+        
+        .btn-action { background: #6200ea; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .chat-box { background: #f9f9f9; height: 200px; overflow-y: scroll; padding: 15px; border-radius: 8px; border: 1px solid #eee; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div>
+            <h1 style="margin:0;">Welcome back, <span id="userName" style="color: #6200ea;">Learner</span> 👋</h1>
+            <p style="margin:5px 0; color:#666;">Ready to continue your streak?</p>
+        </div>
+        <div style="display:flex; gap: 15px;">
+            <div class="stats-card">
+                <div class="stats-val" id="userXP">0</div>
+                <div class="stats-label">Total XP</div>
+            </div>
+            <div class="stats-card">
+                <div class="stats-val" id="userStreak">0</div>
+                <div class="stats-label">Day Streak</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-card">
+        <div style="display:flex; justify-content:space-between;">
+            <h3>Topic: Python Loops</h3>
+            <span id="masteryText" style="font-weight:bold; color:#00c853;">Mastery: 50%</span>
+        </div>
+        
+        <div class="bar-container">
+            <div id="masteryBar" class="bar"></div>
+        </div>
+
+        <div id="quizContainer">
+            <p id="qText" style="font-size: 18px; font-weight: 500;">Loading Questions...</p>
+            <div id="optionsArea"></div>
+            <p id="feedback" style="font-weight: bold; margin-top: 15px;"></p>
+        </div>
+    </div>
+    <div style="margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 8px; border: 1px dashed #2196f3;">
+    <h4 style="margin:0 0 10px 0; color:#1565c0;">📚 Talk to Data</h4>
+    <input type="file" id="pdfInput" accept="application/pdf">
+    
+    <button type="button" onclick="uploadPDF()" style="background:#2196f3; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer;">Upload & Analyze</button>
+    
+    <span id="uploadStatus" style="font-size:12px; margin-left:10px;"></span>
+    </div>
+
+    <div class="main-card">
+        <h3>AI Tutor</h3>
+        <div id="chatHistory" class="chat-box">
+            <p style="color: #888; font-style: italic;">Stuck? Ask me about the quiz!</p>
+        </div>
+        <div style="display:flex; gap:10px;">
+            <input type="text" id="userQuestion" placeholder="Why is the answer B?" style="flex:1; padding:12px; border:1px solid #ddd; border-radius:8px;">
+            <button class="btn-action" onclick="askTutor()">Ask AI</button>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL VARIABLES ---
+        let currentMastery = 0.50;
+        let questions = [];
+        let currentQIndex = 0;
+
+        // --- ON LOAD: Fetch Data ---
+        window.onload = async function() {
+            // 1. Get Dashboard Data for "naga"
+            const dashRes = await fetch('http://127.0.0.1:8000/dashboard/naga');
+            const dashData = await dashRes.json();
+            
+            document.getElementById('userName').innerText = dashData.full_name;
+            document.getElementById('userXP').innerText = dashData.xp;
+            document.getElementById('userStreak').innerText = dashData.streak;
+
+            // 2. Get Quiz Questions for "Python Loops"
+            const quizRes = await fetch('http://127.0.0.1:8000/get_quiz/Python%20Loops');
+            questions = await quizRes.json();
+            
+            // 3. Show First Question
+            loadQuestion();
+        };
+
+        function loadQuestion() {
+            if (currentQIndex >= questions.length) {
+                document.getElementById('quizContainer').innerHTML = "<h3>🎉 Quiz Complete! You practiced all questions.</h3>";
+                return;
+            }
+
+            const q = questions[currentQIndex];
+            document.getElementById('qText').innerText = `Q${currentQIndex + 1}: ${q.text}`;
+            
+            // Render Buttons
+            const area = document.getElementById('optionsArea');
+            area.innerHTML = ""; // Clear old buttons
+            
+            ['A', 'B', 'C'].forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                // Pick the text based on option key (option_a, option_b...)
+                const text = q[`option_${opt.toLowerCase()}`];
+                btn.innerText = `${opt}) ${text}`;
+                btn.onclick = () => checkAnswer(opt, q.correct_option);
+                area.appendChild(btn);
+            });
+            
+            document.getElementById('feedback').innerText = "";
+        }
+
+        async function checkAnswer(selected, correct) {
+            const isCorrect = (selected === correct) ? 1 : 0;
+            const feedback = document.getElementById('feedback');
+
+            if (isCorrect) {
+                feedback.innerText = "✅ Correct! Updating Brain...";
+                feedback.style.color = "green";
+            } else {
+                feedback.innerText = "❌ Incorrect. The AI is adjusting your path...";
+                feedback.style.color = "red";
+            }
+
+            // --- CALL THE BRAIN API ---
+            const res = await fetch('http://127.0.0.1:8000/predict_mastery', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current_mastery: currentMastery, is_correct: isCorrect })
+            });
+            const data = await res.json();
+            
+            // Update UI with new Brain Score
+            currentMastery = data.new_mastery;
+            document.getElementById('masteryBar').style.width = (currentMastery * 100) + "%";
+            document.getElementById('masteryText').innerText = "Mastery: " + (currentMastery * 100).toFixed(1) + "%";
+
+            // Wait 1.5 seconds, then next question
+            setTimeout(() => {
+                currentQIndex++;
+                loadQuestion();
+            }, 1500);
+        }
+
+        async function askTutor() {
+            const qInput = document.getElementById('userQuestion');
+            const question = qInput.value;
+            const chatBox = document.getElementById('chatHistory');
+            
+            chatBox.innerHTML += `<p><b>You:</b> ${question}</p>`;
+            qInput.value = "";
+
+            const res = await fetch('http://127.0.0.1:8000/ask_tutor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_question: question, current_topic: "Python Loops" })
+            });
+            const data = await res.json();
+            chatBox.innerHTML += `<p style="color: #6200ea;"><b>EduMate:</b> ${data.reply}</p>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+        async function uploadPDF() {
+    const fileInput = document.getElementById('pdfInput');
+    const file = fileInput.files[0];
+    const status = document.getElementById('uploadStatus');
+
+    if (!file) {
+        alert("Please select a PDF first!");
+        return;
+    }
+
+    status.innerText = "Processing... (This puts the AI to work)";
+    
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch('http://127.0.0.1:8000/upload_pdf', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        status.innerText = "✅ Ready! You can now ask questions about this PDF.";
+        status.style.color = "green";
+    } catch (e) {
+        status.innerText = "❌ Error uploading.";
+        console.error(e);
+    }
+}
+    </script>
+</body>
+</html>

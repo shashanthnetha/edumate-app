@@ -1,0 +1,7 @@
+model_cache/
+__pycache__/
+*.pyc
+edumate.db
+node_modules/
+.next/
+.DS_Store
